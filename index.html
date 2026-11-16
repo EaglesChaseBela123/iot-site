@@ -16,6 +16,7 @@
   .green { background: #2a2; }
   .blue  { background: #36c; }
   .off   { background: #555; }
+  .beep  { background: #e8a317; }
   .flash { animation: flash .6s; }
   @keyframes flash { from { background: #ffe66d; } to { background: #fff; } }
   #errors { color: #b00; white-space: pre-wrap; }
@@ -26,22 +27,25 @@
 <h1>My IoT Page</h1>
 <p class="small">Adafruit IO user: <span id="whoami">?</span> &nbsp;|&nbsp; <a href="#" id="changeKey">change key</a></p>
 
-<!-- ================= PROJECT A : Arduino -> Website ================= -->
+<!-- ================= PROJECT A + C : Doorbell (two-way) ================= -->
 <div class="card" id="cardA">
   <h2>Doorbell</h2>
   <div class="status" id="doorbellStatus">Waiting for the Arduino...</div>
   <div class="small" id="doorbellTime"></div>
   <div class="small">Presses since this page opened: <span id="doorbellCount">0</span></div>
+  <!-- PROJECT C: answer the door from the website -->
+  <button class="green" onclick="letThemIn()">Let them in</button>
+  <div class="small" id="letInStatus"></div>
 </div>
 
 <!-- ================= PROJECT B : Website -> Arduino ================= -->
 <div class="card">
   <h2>Remote Lamp</h2>
-   <button class="red"   onclick="sendLamp('red')">Red</button>
+  <button class="red"   onclick="sendLamp('red')">Red</button>
   <button class="green" onclick="sendLamp('green')">Green</button>
   <button class="blue"  onclick="sendLamp('blue')">Blue</button>
   <button class="off"   onclick="sendLamp('off')">Off</button>
-  <!-- YOUR TURN: add Green, Blue, and a Buzzer button. -->
+  <button class="beep"  onclick="sendLamp('beep')">Beep</button>
   <div class="small" id="lampStatus"></div>
 </div>
 
@@ -52,12 +56,12 @@
 
 <script>
 /* =====================================================================
-   SETTINGS - change these two lines
+   SETTINGS
    ===================================================================== */
 const IO_USERNAME   = "EaglesChaseBela";   // <-- your Adafruit IO username
-const DOORBELL_FEED = "doorbell";                     // Project A feed (Arduino -> web)
-const LAMP_FEED     = "lamp";                         // Project B feed (web -> Arduino)
-const POLL_MS       = 2000;                           // how often to check the doorbell feed (ms). Keep >= 2000.
+const DOORBELL_FEED = "doorbell";          // Arduino -> web
+const LAMP_FEED     = "lamp";              // web -> Arduino
+const POLL_MS       = 2000;                // how often to check the doorbell feed (ms). Keep >= 2000.
 
 /* =====================================================================
    YOUR KEY IS NOT IN THIS FILE ON PURPOSE.
@@ -119,21 +123,32 @@ async function checkDoorbell() {
 }
 
 function showDoorbell(value, createdAt, flash) {
-  // ===== YOUR TURN =====
-  // Right now this just prints the raw value ("A"). Turn it into a real message:
-  //   "A" -> "Someone is at the door!"   "B" -> ...   "C" -> ...
-  // =====================
+  // Each button gets its own sentence
   let message = "Button " + value + " was pressed";
+  if (value === "A") message = "Someone's at the door!";
+  if (value === "B") message = "Package delivered";
+  if (value === "C") message = "Go away";
 
   document.getElementById("doorbellStatus").textContent = message;
   document.getElementById("doorbellTime").textContent = "at " + new Date(createdAt).toLocaleTimeString();
   document.getElementById("doorbellCount").textContent = count;
 
   if (flash) {
+    document.getElementById("letInStatus").textContent = "";   // new visitor - clear old answer
     const card = document.getElementById("cardA");
     card.classList.remove("flash");
     void card.offsetWidth;               // restart the animation
     card.classList.add("flash");
+  }
+}
+
+/* =====================================================================
+   PROJECT C - answer the door: Pixels green + chime on the Arduino
+   ===================================================================== */
+async function letThemIn() {
+  const ok = await sendLamp("letin");
+  if (ok) {
+    document.getElementById("letInStatus").textContent = "Door opened at " + new Date().toLocaleTimeString();
   }
 }
 
@@ -149,11 +164,13 @@ async function sendLamp(value) {
       headers: { "Content-Type": "application/json", "X-AIO-Key": IO_KEY },
       body: JSON.stringify({ value: value })
     });
-    if (res.status === 429) { status.textContent = "Slow down! Rate limit hit (30 per minute)."; return; }
-    if (!res.ok) { status.textContent = "Adafruit IO replied " + res.status; return; }
+    if (res.status === 429) { status.textContent = "Slow down! Rate limit hit (30 per minute)."; return false; }
+    if (!res.ok) { status.textContent = "Adafruit IO replied " + res.status; return false; }
     status.textContent = "Sent '" + value + "' at " + new Date().toLocaleTimeString();
+    return true;
   } catch (err) {
     status.textContent = "Could not send: " + err.message;
+    return false;
   }
 }
 
